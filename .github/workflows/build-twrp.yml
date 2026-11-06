@@ -108,6 +108,25 @@ jobs:
           test -f ~/twrp/external/magisk-prebuilt/Android.mk \
             || { echo "FATAL: magisk-prebuilt Android.mk marker missing"; exit 1; }
 
+          # soong blocks Android.mk under external/ unless allowlisted. The classic
+          # marker above was allowlisted until soong 95e4cb167d (2026-09-03) dropped it
+          # when GUI2 removed Android.mk. Restore that allowlist entry.
+          DENYLIST=~/twrp/build/soong/ui/build/androidmk_denylist.go
+          python3 - "$DENYLIST" <<'PYEOF'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          entry = '"external/magisk-prebuilt/Android.mk",'
+          if entry not in s:
+              s = s.replace('"bootable/recovery/Android.mk",',
+                            '"bootable/recovery/Android.mk",\n\t' + entry, 1)
+              open(p, 'w').write(s)
+              print("allowlist entry added")
+          else:
+              print("allowlist entry already present")
+          PYEOF
+          grep -n "magisk-prebuilt" "$DENYLIST" || { echo "FATAL: allowlist patch failed"; exit 1; }
+
       - name: Patch device tree (crashrecovery APEX classpath jars)
         run: |
           cd ~/twrp/device/xiaomi/sm8750_thales
