@@ -53,13 +53,22 @@ jobs:
           repo sync -c --no-clone-bundle --no-tags -j8 --fail-fast
           df -h ~/twrp
 
-      - name: Patch device tree (soong bootstrap fixes)
+      - name: Patch device tree (crashrecovery APEX classpath jars)
         run: |
           cd ~/twrp/device/xiaomi/sm8750_thales
-          if ! grep -q "com.android.crashrecovery" device.mk; then
-            printf '\n# Fix: crashrecovery APEX jar declaration\nPRODUCT_APEX_SYSTEM_SERVER_JARS += com.android.crashrecovery\n' >> device.mk
+          # Register crashrecovery APEX jars in the AOSP android-16 <apex>:<jar> format.
+          # The module_sdk snapshot ships prebuilt_systemserverclasspath-fragment with
+          # contents: [service-crashrecovery]; soong requires it to be declared here.
+          if ! grep -q "com.android.crashrecovery:service-crashrecovery" device.mk; then
+            cat >> device.mk <<'FIXEOF'
+
+          # Fix: crashrecovery APEX classpath jars (format <apex>:<jar>, see
+          # build/make/target/product/default_art_config.mk in AOSP android-16)
+          PRODUCT_APEX_SYSTEM_SERVER_JARS += com.android.crashrecovery:service-crashrecovery
+          PRODUCT_APEX_BOOT_JARS += com.android.crashrecovery:framework-crashrecovery
+          FIXEOF
           fi
-          tail -4 device.mk
+          tail -8 device.mk
 
       - name: Reclaim disk from git objects
         run: |
@@ -77,8 +86,9 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           export PATH="$HOME/.local/bin:$PATH"
           source build/envsetup.sh
-          lunch twrp_sm8750_thales-userdebug \
+          lunch twrp_sm8750_thales-bp2a-userdebug \
             || lunch twrp_sm8750_thales-ap2a-userdebug \
+            || lunch twrp_sm8750_thales-userdebug \
             || lunch twrp_sm8750_thales-eng
           mka recoveryimage -j"$(nproc)"
 
