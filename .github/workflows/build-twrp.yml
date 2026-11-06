@@ -99,6 +99,15 @@ jobs:
             https://github.com/TWRP-Test/android_vendor_twrp \
             f5b908030195b41271ff39f1c707bb716271c478
 
+          # Classic recovery/Android.mk guards on external/magisk-prebuilt/Android.mk
+          # (empty marker file); newer magisk-prebuilt dropped it for Android.bp only.
+          # Pin to the version used by the 2026-08-11 official build.
+          pin_commit ~/twrp/external/magisk-prebuilt \
+            https://github.com/TWRP-Test/external_magisk-prebuilt \
+            1e91763f0e216c2a674d018811967e0837b27e0e
+          test -f ~/twrp/external/magisk-prebuilt/Android.mk \
+            || { echo "FATAL: magisk-prebuilt Android.mk marker missing"; exit 1; }
+
       - name: Patch device tree (crashrecovery APEX classpath jars)
         run: |
           cd ~/twrp/device/xiaomi/sm8750_thales
