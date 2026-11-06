@@ -127,6 +127,29 @@ jobs:
           PYEOF
           grep -n "magisk-prebuilt" "$DENYLIST" || { echo "FATAL: allowlist patch failed"; exit 1; }
 
+      - name: Patch libsnapshot include paths (newer system/core)
+        run: |
+          set -e
+          # system/core 2026-09 sync added "#include <payload_consumer/file_descriptor.h>"
+          # to libsnapshot/cow_reader.h. The classic recovery sources include
+          # <libsnapshot/snapshot.h>, so both build systems need the update_engine
+          # header dir (module libupdate_engine_headers exports it).
+          REC=~/twrp/bootable/recovery
+
+          # 1) soong module libinstall (install/snapshot_utils.cpp)
+          BP="$REC/install/Android.bp"
+          if ! grep -q '"libupdate_engine_headers"' "$BP"; then
+            sed -i 's|^        "libminadbd_headers",$|        "libminadbd_headers",\n        "libupdate_engine_headers",|' "$BP"
+          fi
+          grep -n -A3 "libminadbd_headers" "$BP"
+
+          # 2) make module recovery (partition.cpp / partitionmanager.cpp)
+          MK="$REC/Android.mk"
+          if ! grep -q "system/update_engine" "$MK"; then
+            sed -i 's|^TARGET_RECOVERY_GUI := true$|TARGET_RECOVERY_GUI := true\nLOCAL_C_INCLUDES += system/update_engine|' "$MK"
+          fi
+          grep -n -A1 "TARGET_RECOVERY_GUI := true" "$MK"
+
       - name: Patch device tree (crashrecovery APEX classpath jars)
         run: |
           cd ~/twrp/device/xiaomi/sm8750_thales
