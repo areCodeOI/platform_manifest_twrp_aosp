@@ -56,15 +56,10 @@ jobs:
       - name: Patch device tree (soong bootstrap fixes)
         run: |
           cd ~/twrp/device/xiaomi/sm8750_thales
-          # AOSP16 CrashRecovery APEX 一致性检查
           if ! grep -q "com.android.crashrecovery" device.mk; then
-            cat >> device.mk <<'EOF'
-
-# Fix: service-crashrecovery must be declared in PRODUCT_APEX_SYSTEM_SERVER_JARS
-PRODUCT_APEX_SYSTEM_SERVER_JARS += com.android.crashrecovery
-EOF
+            printf '\n# Fix: crashrecovery APEX jar declaration\nPRODUCT_APEX_SYSTEM_SERVER_JARS += com.android.crashrecovery\n' >> device.mk
           fi
-          cat device.mk | tail -5
+          tail -4 device.mk
 
       - name: Reclaim disk from git objects
         run: |
