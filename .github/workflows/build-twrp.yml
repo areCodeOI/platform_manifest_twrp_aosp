@@ -73,18 +73,31 @@ jobs:
           # (gui/theme -> /twres) and made the 2026-11-06 build crash at init and
           # loop-reboot on sm8750. Pin to the classic state used by YuKongA's
           # known-booting 2026-08-11 release (commit from 2026-08-07).
-          cd ~/twrp/bootable/recovery
-          git fetch --depth=1 origin 0f87bccfd011a043f60a883e7e526c4cc9ed67c2
-          git checkout --detach 0f87bccfd011a043f60a883e7e526c4cc9ed67c2
-          git log -1 --oneline
-          test -d gui/theme/common || { echo "FATAL: classic theme sources missing"; exit 1; }
+          #
+          # NOTE: repo-synced projects do NOT have a remote named "origin"
+          # (repo names remotes after the manifest remote, e.g. twrp-16.0), so
+          # fetch by explicit URL + SHA instead.
+          pin_commit() {
+            local dir="$1" url="$2" sha="$3"
+            cd "$dir"
+            echo "== pin $(basename "$dir") -> $sha =="
+            git fetch --depth=1 "$url" "$sha"
+            git -c advice.detachedHead=false checkout --detach "$sha" \
+              || git -c advice.detachedHead=false checkout --detach FETCH_HEAD
+            git log -1 --oneline
+          }
+
+          pin_commit ~/twrp/bootable/recovery \
+            https://github.com/TWRP-Test/android_bootable_recovery \
+            0f87bccfd011a043f60a883e7e526c4cc9ed67c2
+          test -d ~/twrp/bootable/recovery/gui/theme/common \
+            || { echo "FATAL: classic theme sources missing"; exit 1; }
 
           # vendor/twrp was at this commit when the 2026-08-11 official image was built;
           # later commits (Oct) export GUI2-only Soong config and mismatch classic recovery.
-          cd ~/twrp/vendor/twrp
-          git fetch --depth=1 origin f5b908030195b41271ff39f1c707bb716271c478
-          git checkout --detach f5b908030195b41271ff39f1c707bb716271c478
-          git log -1 --oneline
+          pin_commit ~/twrp/vendor/twrp \
+            https://github.com/TWRP-Test/android_vendor_twrp \
+            f5b908030195b41271ff39f1c707bb716271c478
 
       - name: Patch device tree (crashrecovery APEX classpath jars)
         run: |
