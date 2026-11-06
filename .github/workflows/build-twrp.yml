@@ -66,6 +66,26 @@ jobs:
           repo sync -c --no-clone-bundle --no-tags -j8 --fail-fast
           df -h ~/twrp
 
+      - name: Pin classic TWRP UI (pre-GUI2 sources)
+        run: |
+          set -e
+          # GUI2 (bootable/recovery dbcad759, 2026-10-24) removed the classic theme
+          # (gui/theme -> /twres) and made the 2026-11-06 build crash at init and
+          # loop-reboot on sm8750. Pin to the classic state used by YuKongA's
+          # known-booting 2026-08-11 release (commit from 2026-08-07).
+          cd ~/twrp/bootable/recovery
+          git fetch --depth=1 origin 0f87bccfd011a043f60a883e7e526c4cc9ed67c2
+          git checkout --detach 0f87bccfd011a043f60a883e7e526c4cc9ed67c2
+          git log -1 --oneline
+          test -d gui/theme/common || { echo "FATAL: classic theme sources missing"; exit 1; }
+
+          # vendor/twrp was at this commit when the 2026-08-11 official image was built;
+          # later commits (Oct) export GUI2-only Soong config and mismatch classic recovery.
+          cd ~/twrp/vendor/twrp
+          git fetch --depth=1 origin f5b908030195b41271ff39f1c707bb716271c478
+          git checkout --detach f5b908030195b41271ff39f1c707bb716271c478
+          git log -1 --oneline
+
       - name: Patch device tree (crashrecovery APEX classpath jars)
         run: |
           cd ~/twrp/device/xiaomi/sm8750_thales
@@ -106,6 +126,25 @@ jobs:
             || lunch twrp_sm8750_thales-userdebug \
             || lunch twrp_sm8750_thales-eng
           mka recoveryimage -j3
+
+      - name: Verify classic UI ramdisk (twres must exist)
+        run: |
+          cd ~/twrp
+          set -e
+          TW=$(find out/target/product -maxdepth 5 -type d -name twres 2>/dev/null | head -1)
+          echo "twres dir: [$TW]"
+          if [ -z "$TW" ]; then
+            echo "FATAL: classic theme (twres) missing from recovery staging"
+            find out/target/product -maxdepth 4 -type d -name root | head -5 || true
+            exit 1
+          fi
+          echo "twres entries: $(ls "$TW" | wc -l)"
+          # GUI2 libs must not be in the image (they only appear with the new UI)
+          if find out/target/product -maxdepth 6 -name 'liblvgl_twrp.so' 2>/dev/null | grep -q .; then
+            echo "FATAL: GUI2 liblvgl_twrp.so found - classic pin failed"
+            exit 1
+          fi
+          echo "classic UI verification passed"
 
       - name: Upload recovery image
         if: always()
