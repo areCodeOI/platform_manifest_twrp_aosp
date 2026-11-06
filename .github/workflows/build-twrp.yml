@@ -43,6 +43,19 @@ jobs:
           git config --global user.email "github-actions@users.noreply.github.com"
           git config --global color.ui false
 
+      - name: Setup swap space (soong analysis needs >16GB RAM)
+        run: |
+          set -x
+          free -h
+          # AOSP-16 soong analysis peaks at 20-30GB RAM; runner has 15.6GB.
+          # Create a 24GB swapfile on the 60GB+ free disk to survive it.
+          sudo swapoff -a || true
+          sudo fallocate -l 24G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=24576
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Sync TWRP twrp-16.0 source
         run: |
           mkdir -p ~/twrp && cd ~/twrp
@@ -85,12 +98,14 @@ jobs:
           cd ~/twrp
           export ALLOW_MISSING_DEPENDENCIES=true
           export PATH="$HOME/.local/bin:$PATH"
+          # Reduce parallelism: 2 cores/15.6GB runner cannot feed -j$(nproc) anyway
+          # during soong/kati; memory pressure was killing the job.
           source build/envsetup.sh
           lunch twrp_sm8750_thales-bp2a-userdebug \
             || lunch twrp_sm8750_thales-ap2a-userdebug \
             || lunch twrp_sm8750_thales-userdebug \
             || lunch twrp_sm8750_thales-eng
-          mka recoveryimage -j"$(nproc)"
+          mka recoveryimage -j3
 
       - name: Upload recovery image
         if: always()
