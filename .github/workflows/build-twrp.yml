@@ -53,11 +53,23 @@ jobs:
           repo sync -c --no-clone-bundle --no-tags -j8 --fail-fast
           df -h ~/twrp
 
+      - name: Patch device tree (soong bootstrap fixes)
+        run: |
+          cd ~/twrp/device/xiaomi/sm8750_thales
+          # AOSP16 CrashRecovery APEX 一致性检查
+          if ! grep -q "com.android.crashrecovery" device.mk; then
+            cat >> device.mk <<'EOF'
+
+# Fix: service-crashrecovery must be declared in PRODUCT_APEX_SYSTEM_SERVER_JARS
+PRODUCT_APEX_SYSTEM_SERVER_JARS += com.android.crashrecovery
+EOF
+          fi
+          cat device.mk | tail -5
+
       - name: Reclaim disk from git objects
         run: |
           cd ~/twrp
           echo "=== before ==="; df -h /
-          # 删除已检出仓库的 git pack (不影响编译, 只影响事后增量同步)
           find .repo/project-objects -type f -name "*.pack" -delete 2>/dev/null || true
           find .repo/project-objects -type f -name "*.idx" -delete 2>/dev/null || true
           find .repo/projects -type f -name "*.pack" -delete 2>/dev/null || true
