@@ -150,6 +150,25 @@ jobs:
           fi
           grep -n -A1 "TARGET_RECOVERY_GUI := true" "$MK"
 
+      - name: Pin device tree to official 2026-08-11 revision
+        run: |
+          set -e
+          # The 2026-09-01 "sync recovery tree with sm8850" commit (48a03d2f) removed
+          # 117 files of the Wi-Fi userspace stack (wpa_supplicant, wpa_cli, dhcpcd,
+          # cnss-daemon, pd-mapper, pm-service, qrtr-ns, rmt_storage) plus the peach /
+          # ipa_fws firmware, expecting them from a newer (GUI2-era) recovery.
+          # Classic recovery needs them, so use the exact device tree revision of
+          # YuKongA's known-booting 2026-08-11 release.
+          cd ~/twrp/device/xiaomi/sm8750_thales
+          git fetch --depth=1 https://github.com/YuKongA/twrp_device_xiaomi_sm8750_thales \
+            db6aa725dd6e144575e0ab8b295f333b71eca5c4
+          git -c advice.detachedHead=false checkout --detach \
+            db6aa725dd6e144575e0ab8b295f333b71eca5c4 \
+            || git -c advice.detachedHead=false checkout --detach FETCH_HEAD
+          git log -1 --oneline
+          test -f recovery/root/vendor/bin/wpa_supplicant \
+            || { echo "FATAL: Wi-Fi stack missing from device tree"; exit 1; }
+
       - name: Patch device tree (crashrecovery APEX classpath jars)
         run: |
           cd ~/twrp/device/xiaomi/sm8750_thales
@@ -208,6 +227,10 @@ jobs:
             echo "FATAL: GUI2 liblvgl_twrp.so found - classic pin failed"
             exit 1
           fi
+          # Wi-Fi userspace must come from the pinned device tree revision
+          WS=$(find out/target/product -maxdepth 7 -name wpa_supplicant 2>/dev/null | head -1)
+          echo "wpa_supplicant: [$WS]"
+          [ -n "$WS" ] || { echo "FATAL: wpa_supplicant missing from recovery ramdisk"; exit 1; }
           echo "classic UI verification passed"
 
       - name: Upload recovery image
