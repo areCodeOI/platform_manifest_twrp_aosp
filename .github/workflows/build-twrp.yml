@@ -66,90 +66,6 @@ jobs:
           repo sync -c --no-clone-bundle --no-tags -j8 --fail-fast
           df -h ~/twrp
 
-      - name: Pin classic TWRP UI (pre-GUI2 sources)
-        run: |
-          set -e
-          # GUI2 (bootable/recovery dbcad759, 2026-10-24) removed the classic theme
-          # (gui/theme -> /twres) and made the 2026-11-06 build crash at init and
-          # loop-reboot on sm8750. Pin to the classic state used by YuKongA's
-          # known-booting 2026-08-11 release (commit from 2026-08-07).
-          #
-          # NOTE: repo-synced projects do NOT have a remote named "origin"
-          # (repo names remotes after the manifest remote, e.g. twrp-16.0), so
-          # fetch by explicit URL + SHA instead.
-          pin_commit() {
-            local dir="$1" url="$2" sha="$3"
-            cd "$dir"
-            echo "== pin $(basename "$dir") -> $sha =="
-            git fetch --depth=1 "$url" "$sha"
-            git -c advice.detachedHead=false checkout --detach "$sha" \
-              || git -c advice.detachedHead=false checkout --detach FETCH_HEAD
-            git log -1 --oneline
-          }
-
-          pin_commit ~/twrp/bootable/recovery \
-            https://github.com/TWRP-Test/android_bootable_recovery \
-            0f87bccfd011a043f60a883e7e526c4cc9ed67c2
-          test -d ~/twrp/bootable/recovery/gui/theme/common \
-            || { echo "FATAL: classic theme sources missing"; exit 1; }
-
-          # vendor/twrp was at this commit when the 2026-08-11 official image was built;
-          # later commits (Oct) export GUI2-only Soong config and mismatch classic recovery.
-          pin_commit ~/twrp/vendor/twrp \
-            https://github.com/TWRP-Test/android_vendor_twrp \
-            f5b908030195b41271ff39f1c707bb716271c478
-
-          # Classic recovery/Android.mk guards on external/magisk-prebuilt/Android.mk
-          # (empty marker file); newer magisk-prebuilt dropped it for Android.bp only.
-          # Pin to the version used by the 2026-08-11 official build.
-          pin_commit ~/twrp/external/magisk-prebuilt \
-            https://github.com/TWRP-Test/external_magisk-prebuilt \
-            1e91763f0e216c2a674d018811967e0837b27e0e
-          test -f ~/twrp/external/magisk-prebuilt/Android.mk \
-            || { echo "FATAL: magisk-prebuilt Android.mk marker missing"; exit 1; }
-
-          # soong blocks Android.mk under external/ unless allowlisted. The classic
-          # marker above was allowlisted until soong 95e4cb167d (2026-09-03) dropped it
-          # when GUI2 removed Android.mk. Restore that allowlist entry.
-          DENYLIST=~/twrp/build/soong/ui/build/androidmk_denylist.go
-          python3 - "$DENYLIST" <<'PYEOF'
-          import sys
-          p = sys.argv[1]
-          s = open(p).read()
-          entry = '"external/magisk-prebuilt/Android.mk",'
-          if entry not in s:
-              s = s.replace('"bootable/recovery/Android.mk",',
-                            '"bootable/recovery/Android.mk",\n\t' + entry, 1)
-              open(p, 'w').write(s)
-              print("allowlist entry added")
-          else:
-              print("allowlist entry already present")
-          PYEOF
-          grep -n "magisk-prebuilt" "$DENYLIST" || { echo "FATAL: allowlist patch failed"; exit 1; }
-
-      - name: Patch libsnapshot include paths (newer system/core)
-        run: |
-          set -e
-          # system/core 2026-09 sync added "#include <payload_consumer/file_descriptor.h>"
-          # to libsnapshot/cow_reader.h. The classic recovery sources include
-          # <libsnapshot/snapshot.h>, so both build systems need the update_engine
-          # header dir (module libupdate_engine_headers exports it).
-          REC=~/twrp/bootable/recovery
-
-          # 1) soong module libinstall (install/snapshot_utils.cpp)
-          BP="$REC/install/Android.bp"
-          if ! grep -q '"libupdate_engine_headers"' "$BP"; then
-            sed -i 's|^        "libminadbd_headers",$|        "libminadbd_headers",\n        "libupdate_engine_headers",|' "$BP"
-          fi
-          grep -n -A3 "libminadbd_headers" "$BP"
-
-          # 2) make module recovery (partition.cpp / partitionmanager.cpp)
-          MK="$REC/Android.mk"
-          if ! grep -q "system/update_engine" "$MK"; then
-            sed -i 's|^TARGET_RECOVERY_GUI := true$|TARGET_RECOVERY_GUI := true\nLOCAL_C_INCLUDES += system/update_engine|' "$MK"
-          fi
-          grep -n -A1 "TARGET_RECOVERY_GUI := true" "$MK"
-
       - name: Pin device tree to official 2026-08-11 revision
         run: |
           set -e
@@ -210,23 +126,14 @@ jobs:
             || lunch twrp_sm8750_thales-eng
           mka recoveryimage -j3
 
-      - name: Verify classic UI ramdisk (twres must exist)
+      - name: Verify GUI2 ramdisk (lvgl present, wifi present)
         run: |
           cd ~/twrp
           set -e
-          TW=$(find out/target/product -maxdepth 5 -type d -name twres 2>/dev/null | head -1)
-          echo "twres dir: [$TW]"
-          if [ -z "$TW" ]; then
-            echo "FATAL: classic theme (twres) missing from recovery staging"
-            find out/target/product -maxdepth 4 -type d -name root | head -5 || true
-            exit 1
-          fi
-          echo "twres entries: $(ls "$TW" | wc -l)"
-          # GUI2 libs must not be in the image (they only appear with the new UI)
-          if find out/target/product -maxdepth 6 -name 'liblvgl_twrp.so' 2>/dev/null | grep -q .; then
-            echo "FATAL: GUI2 liblvgl_twrp.so found - classic pin failed"
-            exit 1
-          fi
+          # GUI2 UI: liblvgl_twrp.so must be present in the recovery staging
+          LV=$(find out/target/product -maxdepth 7 -name 'liblvgl_twrp.so' 2>/dev/null | head -1)
+          echo "liblvgl_twrp.so: [$LV]"
+          [ -n "$LV" ] || { echo "FATAL: GUI2 liblvgl_twrp.so missing"; exit 1; }
           # Wi-Fi userspace must come from the pinned device tree revision
           WS=$(find out/target/product -maxdepth 7 -name wpa_supplicant 2>/dev/null | head -1)
           echo "wpa_supplicant: [$WS]"
