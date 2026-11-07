@@ -165,6 +165,28 @@ jobs:
           grep -n "touch_report" "$RC"
           test -f "$DT/recovery/root/system/etc/vintf/manifest/recovery-device.xml"
 
+      - name: Patch recovery (retry metadata decrypt on user decrypt)
+        run: |
+          set -e
+          REC=~/twrp/bootable/recovery
+          python3 - "$REC/partitionmanager.cpp" <<'PYEOF'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          old = '    if (!PrepareDataForDe(true)) return -1;'
+          new = '    // Retry the metadata/DE layer now that init has had time to bring up\n' \
+                '    // KeyMint and the HAL services; the very early startup pass can fail.\n' \
+                '    DecryptData();\n' + old
+          if 'Retry the metadata/DE layer' in s:
+              print('decrypt retry patch already present')
+          elif old in s:
+              open(p, 'w').write(s.replace(old, new, 1))
+              print('decrypt retry patch applied')
+          else:
+              raise SystemExit('decrypt retry patch target not found')
+          PYEOF
+          grep -n "Retry the metadata/DE layer" "$REC/partitionmanager.cpp"
+
       - name: Patch device tree (crashrecovery APEX classpath jars)
         run: |
           cd ~/twrp/device/xiaomi/sm8750_thales
